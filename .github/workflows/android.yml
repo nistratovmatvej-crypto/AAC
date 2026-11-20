@@ -159,11 +159,45 @@ jobs:
                       }
                     }
                   }
-                  "Tasks"->{
+                                    "Tasks"->{
                     if(agents.isEmpty())Text("Create an agent first.",color=gray)
                     OutlinedTextField(goal,{goal=it},label={Text("Task description")},modifier=Modifier.fillMaxWidth(),minLines=2)
-                    Button(onClick={if(goal.isNotBlank()&&agents.isNotEmpty()){tasks.add(Task(UUID.randomUUID().toString(),selected.takeIf{it.isNotEmpty()}?:agents.first().id,goal.trim()));goal="";result="Task queued."}},modifier=Modifier.fillMaxWidth()){Text("Queue task")}
-                    Spacer(Modifier.height(8.dp));LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){items(tasks){t->CardBox{Column{Text(t.goal,fontWeight=FontWeight.Bold,color=text);Text(t.status,color=blue,fontSize=12.sp);if(t.plan.isNotEmpty())Text(t.plan,color=gray,fontSize=12.sp);Row{Button(enabled=!busy,onClick={busy=true;t.status="Thinking…";CoroutineScope(Dispatchers.Main).launch{val answer=withContext(Dispatchers.IO){Gemini(api).plan(agents.firstOrNull{it.id==t.agent}?.objective?: "General agent",t.goal,agents.firstOrNull{it.id==t.agent}?.tools?:tools)};t.plan=answer;t.status="Plan ready";result=answer;busy=false}}}){Text("Plan with AI")};Button(enabled=!busy&&t.plan.isNotEmpty(),onClick={result=t.plan;tab="Run";selected=t.id}){Text("Review & run")}}}}}
+                    Button(onClick={
+                      if(goal.isNotBlank()&&agents.isNotEmpty()){
+                        tasks.add(Task(UUID.randomUUID().toString(),selected.takeIf{it.isNotEmpty()}?:agents.first().id,goal.trim()))
+                        goal=""
+                        result="Task queued."
+                      }
+                    },modifier=Modifier.fillMaxWidth()){Text("Queue task")}
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                      items(tasks){t->
+                        CardBox {
+                          Column {
+                            Text(t.goal,fontWeight=FontWeight.Bold,color=text)
+                            Text(t.status,color=blue,fontSize=12.sp)
+                            if(t.plan.isNotEmpty())Text(t.plan,color=gray,fontSize=12.sp)
+                            Row {
+                              Button(enabled=!busy,onClick={
+                                busy=true
+                                t.status="Thinking…"
+                                CoroutineScope(Dispatchers.Main).launch {
+                                  val agent=agents.firstOrNull{it.id==t.agent}
+                                  val answer=withContext(Dispatchers.IO){
+                                    Gemini(api).plan(agent?.objective?: "General agent",t.goal,agent?.tools?:tools)
+                                  }
+                                  t.plan=answer
+                                  t.status="Plan ready"
+                                  result=answer
+                                  busy=false
+                                }
+                              }){Text("Plan with AI")}
+                              Button(enabled=!busy&&t.plan.isNotEmpty(),onClick={result=t.plan;tab="Run";selected=t.id}){Text("Review & run")}
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                   "Run"->{
                     Text("Execution is step-by-step and permission-gated.",color=gray)
