@@ -145,7 +145,19 @@ jobs:
                     OutlinedTextField(objective,{objective=it},label={Text("Instructions / role")},minLines=2,modifier=Modifier.fillMaxWidth())
                     OutlinedTextField(tools,{tools=it},label={Text("Allowed tools (UI, browser, etc.)")},modifier=Modifier.fillMaxWidth())
                     Button(onClick={if(agentName.isNotBlank()){agents.add(Agent(UUID.randomUUID().toString(),agentName.trim(),objective.trim(),tools.trim(),false));agentName="";objective="";}},modifier=Modifier.fillMaxWidth()){Text("Create agent")}
-                    Spacer(Modifier.height(10.dp));LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){items(agents){a->CardBox{Column{Text(a.name,fontWeight=FontWeight.Bold,color=text);Text(a.objective,color=gray,fontSize=12.sp);Row{TextButton(onClick={selected=a.id;tab="Tasks"}){Text("Assign task")};TextButton(onClick={agents.remove(a)}){Text("Delete")}}}}}}
+                    Spacer(Modifier.height(10.dp))
+                    LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                      items(agents){a->
+                        CardBox {
+                          Column {
+                            Text(a.name,fontWeight=FontWeight.Bold,color=text)
+                            Text(a.objective,color=gray,fontSize=12.sp)
+                            TextButton(onClick={selected=a.id;tab="Tasks"}){Text("Assign task")}
+                            TextButton(onClick={agents.remove(a)}){Text("Delete")}
+                          }
+                        }
+                      }
+                    }
                   }
                   "Tasks"->{
                     if(agents.isEmpty())Text("Create an agent first.",color=gray)
@@ -173,7 +185,7 @@ jobs:
             }
           }
           @Composable private fun Stat(label:String,value:String){CardBox{Column(Modifier.padding(10.dp)){Text(label,color=gray,fontSize=10.sp);Text(value,color=text,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}
-          @Composable private fun CardBox(content:@Composable ()->Unit){Surface(color=panel,shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp),content=content)}}
+          @Composable private fun CardBox(content:@Composable ()->Unit){Surface(color=panel,shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){content()}}}
           class Gemini(private val key:String){
             fun plan(role:String,goal:String,tools:String):String{
               if(key.isBlank())return "No AI key saved. Set a Gemini API key in Settings. Offline: split task into goal, inspect, act, verify.\n\nSuggested task: $goal"
