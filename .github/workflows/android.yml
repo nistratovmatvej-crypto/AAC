@@ -1,0 +1,194 @@
+name: AAC Android APK
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/aac/agentcenter app/src/main/res/drawable app/src/main/res/values app/src/main/res/xml
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name = "AAC"
+          include(":app")
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins { id("com.android.application") version "8.6.1" apply false; id("org.jetbrains.kotlin.android") version "1.9.24" apply false }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+          cat > app/build.gradle.kts <<'EOF'
+          plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
+          android { namespace="com.aac.agentcenter"; compileSdk=35
+            defaultConfig { applicationId="com.aac.agentcenter"; minSdk=26; targetSdk=35; versionCode=3; versionName="0.3" }
+            buildFeatures { compose=true }
+            composeOptions { kotlinCompilerExtensionVersion="1.5.14" }
+            kotlinOptions { jvmTarget="17" }
+          }
+          dependencies {
+            implementation("androidx.core:core-ktx:1.15.0")
+            implementation("androidx.activity:activity-compose:1.10.0")
+            implementation(platform("androidx.compose:compose-bom:2024.10.00"))
+            implementation("androidx.compose.ui:ui")
+            implementation("androidx.compose.ui:ui-tooling-preview")
+            implementation("androidx.compose.material3:material3")
+            implementation("androidx.compose.material:material-icons-extended")
+            implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+            implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+            implementation("org.json:json:20240303")
+            debugImplementation("androidx.compose.ui:ui-tooling")
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <application android:label="AAC" android:theme="@android:style/Theme.Material.NoActionBar" android:icon="@drawable/aac_icon" android:allowBackup="true">
+              <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+              <service android:name=".AacService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true" android:label="AAC Device Actions"><intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter><meta-data android:name="android.accessibilityservice" android:resource="@xml/aac_accessibility"/></service>
+            </application>
+          </manifest>
+          EOF
+          cat > app/src/main/res/xml/aac_accessibility.xml <<'EOF'
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android" android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged" android:accessibilityFeedbackType="feedbackGeneric" android:canRetrieveWindowContent="true" android:description="@string/aac_accessibility_description" android:notificationTimeout="100"/>
+          EOF
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources><string name="aac_accessibility_description">AAC user-approved interface automation. Actions are initiated by the user.</string></resources>
+          EOF
+          cat > app/src/main/res/drawable/aac_icon.xml <<'EOF'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+            <path android:fillColor="#0C1525" android:pathData="M0,0h108v108h-108z"/>
+            <path android:fillColor="#EAF2FF" android:pathData="M54,18 L62,43 L88,54 L62,62 L54,88 L46,62 L20,54 L46,43z"/>
+            <path android:fillColor="#5E9CFF" android:pathData="M54,38 L59,51 L72,54 L59,58 L54,71 L50,58 L36,54 L50,51z"/>
+          </vector>
+          EOF
+          cat > app/src/main/java/com/aac/agentcenter/AacService.kt <<'EOF'
+          package com.aac.agentcenter
+          import android.accessibilityservice.AccessibilityService
+          import android.content.*
+          import android.os.Build
+          import android.view.accessibility.AccessibilityNodeInfo
+          import android.view.accessibility.AccessibilityEvent
+          import android.widget.Toast
+          class AacService: AccessibilityService() {
+            private val rx=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){val action=i?.getStringExtra("action") ?: return; when(action){
+              "BACK"->performGlobalAction(GLOBAL_ACTION_BACK); "HOME"->performGlobalAction(GLOBAL_ACTION_HOME)
+              "CLICK"->i.getStringExtra("text")?.let{clickText(it)}
+              "INPUT"->i.getStringExtra("text")?.let{inputText(it)}
+              "SCROLL_DOWN"->rootInActiveWindow?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+              "SCROLL_UP"->rootInActiveWindow?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            }}}
+            override fun onServiceConnected(){val f=IntentFilter("aac.ACTION");if(Build.VERSION.SDK_INT>=33)registerReceiver(rx,f,Context.RECEIVER_NOT_EXPORTED) else registerReceiver(rx,f)}
+            override fun onAccessibilityEvent(e:AccessibilityEvent?){}
+            override fun onInterrupt(){}
+            override fun onDestroy(){runCatching{unregisterReceiver(rx)};super.onDestroy()}
+            private fun clickText(t:String){val root=rootInActiveWindow?:return;val nodes=root.findAccessibilityNodeInfosByText(t);val n=nodes.firstOrNull{it.isClickable}?:nodes.firstOrNull();n?.performAction(AccessibilityNodeInfo.ACTION_CLICK)}
+            private fun inputText(t:String){val root=rootInActiveWindow?:return;val n=root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return;val b=android.os.Bundle().apply{putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,t)};n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,b)}
+          }
+          EOF
+          cat > app/src/main/java/com/aac/agentcenter/MainActivity.kt <<'EOF'
+          package com.aac.agentcenter
+          import android.content.Intent
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.*
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.*
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.*
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import kotlinx.coroutines.*
+          import org.json.*
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.util.UUID
+          data class Agent(val id:String,val name:String,val objective:String,val tools:String,val autonomous:Boolean)
+          data class Task(val id:String,val agent:String,val goal:String,var status:String="Ready",var plan:String="")
+          class MainActivity:ComponentActivity(){
+            override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setContent{AACApp(this)}}
+            fun action(a:String,t:String=""){sendBroadcast(Intent("aac.ACTION").setPackage(packageName).putExtra("action",a).putExtra("text",t))}
+          }
+          private val dark=Color(0xFF0A101A);private val panel=Color(0xFF121C29);private val blue=Color(0xFF8AB6FF);private val text=Color(0xFFEAF0F8);private val gray=Color(0xFF8A9AAF)
+          @Composable fun AACApp(act:MainActivity){
+            val prefs=act.getSharedPreferences("aac",0);var api by remember{mutableStateOf(prefs.getString("key","")?: "")};var tab by remember{mutableStateOf("Agents")};var agents by remember{mutableStateOf(mutableListOf<Agent>())};var tasks by remember{mutableStateOf(mutableListOf<Task>())};var logs by remember{mutableStateOf(mutableListOf<String>())};var agentName by remember{mutableStateOf("")};var objective by remember{mutableStateOf("")};var tools by remember{mutableStateOf("UI automation")};var goal by remember{mutableStateOf("")};var selected by remember{mutableStateOf("")};var busy by remember{mutableStateOf(false)};var result by remember{mutableStateOf("")}
+            MaterialTheme(colorScheme=darkColorScheme(background=dark,surface=panel,primary=blue,onSurface=text)){
+              Column(Modifier.fillMaxSize().background(dark).padding(16.dp)){
+                Row(verticalAlignment=Alignment.CenterVertically){Column{Text("AAC",fontSize=25.sp,fontWeight=FontWeight.Black,letterSpacing=3.sp,color=text);Text("AUTONOMOUS AGENT CENTER",fontSize=9.sp,letterSpacing=2.sp,color=gray)};Spacer(Modifier.weight(1f));Text("✦",fontSize=28.sp,color=blue)}
+                Spacer(Modifier.height(16.dp));Text(tab,fontSize=24.sp,fontWeight=FontWeight.Bold,color=text);Text("AI-assisted · user-controlled automation",fontSize=12.sp,color=gray);Spacer(Modifier.height(12.dp))
+                when(tab){
+                  "Agents"->{
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Stat("Agents",agents.size.toString());Stat("Tasks",tasks.size.toString());Stat("Running",if(busy)"1" else "0")}
+                    Spacer(Modifier.height(12.dp));Text("Create agents",fontWeight=FontWeight.Bold,color=text)
+                    OutlinedTextField(agentName,{agentName=it},label={Text("Agent name")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(objective,{objective=it},label={Text("Instructions / role")},minLines=2,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(tools,{tools=it},label={Text("Allowed tools (UI, browser, etc.)")},modifier=Modifier.fillMaxWidth())
+                    Button(onClick={if(agentName.isNotBlank()){agents.add(Agent(UUID.randomUUID().toString(),agentName.trim(),objective.trim(),tools.trim(),false));agentName="";objective="";}},modifier=Modifier.fillMaxWidth()){Text("Create agent")}
+                    Spacer(Modifier.height(10.dp));LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){items(agents){a->CardBox{Column{Text(a.name,fontWeight=FontWeight.Bold,color=text);Text(a.objective,color=gray,fontSize=12.sp);Row{TextButton(onClick={selected=a.id;tab="Tasks"}){Text("Assign task")};TextButton(onClick={agents.remove(a)}){Text("Delete")}}}}}}
+                  }
+                  "Tasks"->{
+                    if(agents.isEmpty())Text("Create an agent first.",color=gray)
+                    OutlinedTextField(goal,{goal=it},label={Text("Task description")},modifier=Modifier.fillMaxWidth(),minLines=2)
+                    Button(onClick={if(goal.isNotBlank()&&agents.isNotEmpty()){tasks.add(Task(UUID.randomUUID().toString(),selected.takeIf{it.isNotEmpty()}?:agents.first().id,goal.trim()));goal="";result="Task queued."}},modifier=Modifier.fillMaxWidth()){Text("Queue task")}
+                    Spacer(Modifier.height(8.dp));LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){items(tasks){t->CardBox{Column{Text(t.goal,fontWeight=FontWeight.Bold,color=text);Text(t.status,color=blue,fontSize=12.sp);if(t.plan.isNotEmpty())Text(t.plan,color=gray,fontSize=12.sp);Row{Button(enabled=!busy,onClick={busy=true;t.status="Thinking…";CoroutineScope(Dispatchers.Main).launch{val answer=withContext(Dispatchers.IO){Gemini(api).plan(agents.firstOrNull{it.id==t.agent}?.objective?: "General agent",t.goal,agents.firstOrNull{it.id==t.agent}?.tools?:tools)};t.plan=answer;t.status="Plan ready";result=answer;busy=false}}}){Text("Plan with AI")};Button(enabled=!busy&&t.plan.isNotEmpty(),onClick={result=t.plan;tab="Run";selected=t.id}){Text("Review & run")}}}}}
+                  }
+                  "Run"->{
+                    Text("Execution is step-by-step and permission-gated.",color=gray)
+                    Text(result,color=text,fontSize=12.sp)
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={act.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}){Text("Enable access")};OutlinedButton(onClick={act.action("BACK")}){Text("Back")}}
+                    OutlinedTextField(goal,{goal=it},label={Text("Text to enter")},modifier=Modifier.fillMaxWidth())
+                    Row{Button(onClick={act.action("CLICK",goal)}){Text("Tap text")};Button(onClick={act.action("INPUT",goal)}){Text("Input text")};Button(onClick={act.action("SCROLL_DOWN")}){Text("Scroll")}}
+                    Text("For safety, this prototype does not execute destructive actions such as deleting mail, sending messages, or purchasing without explicit review.",color=gray,fontSize=12.sp)
+                  }
+                  "Activity"->LazyColumn(Modifier.weight(1f)){items(logs){Text(it,color=gray,modifier=Modifier.padding(8.dp))}}
+                  "Settings"->{
+                    Text("Gemini API key",color=text,fontWeight=FontWeight.Bold);OutlinedTextField(api,{api=it;prefs.edit().putString("key",it).apply()},label={Text("Paste API key")},modifier=Modifier.fillMaxWidth());Text("Use a Google AI Studio key. The app sends task descriptions to Gemini for planning. API key stays in app preferences; never share it.",color=gray,fontSize=12.sp)
+                    Button(onClick={act.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}){Text("Accessibility service settings")}
+                    Text("Automation can interact with visible screens only when Android Accessibility is enabled. Verify actions; never authorize an agent to handle passwords or payment flows.",color=gray)
+                  }
+                }
+                Spacer(Modifier.height(10.dp));Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){listOf("Agents","Tasks","Run","Activity","Settings").forEach{TextButton(onClick={tab=it}){Text(it,color=if(tab==it)blue else gray,fontSize=10.sp)}}}
+              }
+            }
+          }
+          @Composable private fun Stat(label:String,value:String){CardBox{Column(Modifier.padding(10.dp)){Text(label,color=gray,fontSize=10.sp);Text(value,color=text,fontSize=20.sp,fontWeight=FontWeight.Bold)}}}
+          @Composable private fun CardBox(content:@Composable ()->Unit){Surface(color=panel,shape=RoundedCornerShape(14.dp),modifier=Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp),content=content)}}
+          class Gemini(private val key:String){
+            fun plan(role:String,goal:String,tools:String):String{
+              if(key.isBlank())return "No AI key saved. Set a Gemini API key in Settings. Offline: split task into goal, inspect, act, verify.\n\nSuggested task: $goal"
+              return try{val c=URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="+key).openConnection() as HttpURLConnection;c.requestMethod="POST";c.connectTimeout=20000;c.readTimeout=30000;c.doOutput=true;c.setRequestProperty("Content-Type","application/json");val prompt="You are AAC mobile agent planner. Role: $role. Allowed tools: $tools. User goal: $goal. Return concise actionable plan with numbered steps, risk flags. Do not ask to delete, send, purchase, share private info or alter account/security settings. Do not invent capabilities.";val body=JSONObject().put("contents",JSONArray().put(JSONObject().put("parts",JSONArray().put(JSONObject().put("text",prompt))))).put("generationConfig",JSONObject().put("temperature",0.25).put("maxOutputTokens",1200));c.outputStream.use{it.write(body.toString().toByteArray())};val raw=(if(c.responseCode in 200..299)c.inputStream else c.errorStream).bufferedReader().readText();val json=JSONObject(raw);json.optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)?.optString("text")?: "AI error: "+json.optJSONObject("error")?.optString("message",raw)
+              }catch(e:Exception){"AI connection error: ${e.message}"}
+            }
+          }
+          EOF
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - name: Package full source project
+        run: zip -r AAC-source.zip settings.gradle.kts build.gradle.kts gradle.properties app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AAC-APK-and-source
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            AAC-source.zip
